@@ -13,13 +13,7 @@ module.exports = {
         singleQuote: true,
         semi: false,
       },
-    ],
-    'vue/no-parsing-error': [
-      'off',
-      {
-        'x-invalid-end-tag': false,
-      },
-    ],
+    ]
   },
   parserOptions: {
     "ecmaVersion": 6,
