@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "node": "node bin/www",
+    "serve": "set NODE_ENV=dev&&node bin/www",
+    "node": "set NODE_ENV=prod&&node bin/www",
     "lint": "eslint --fix --ext .js routes utils models",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
