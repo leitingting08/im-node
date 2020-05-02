@@ -1,3 +1,3 @@
 module.exports = {
-    ip: process.env.NODE_ENV==='prod'? '49.235.157.201':'127.0.0.1'
+    ip: process.env.NODE_ENV==='dev'? '127.0.0.1':'49.235.157.201'
 }
