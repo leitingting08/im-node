@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "serve": "set NODE_ENV=dev&&node bin/www",
-    "node": "set NODE_ENV=prod&&node bin/www",
+    "node": "set NODE_ENV=prod&&pm2 start bin/www",
     "lint": "eslint --fix --ext .js routes utils models",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -16,6 +16,7 @@
     "express": "^4.17.1",
     "mongoose": "^5.9.7",
     "morgan": "^1.10.0",
+    "pm2": "^4.4.0",
     "redis": "^3.0.2",
     "ws": "^7.2.3"
   },
