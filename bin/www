@@ -136,6 +136,7 @@ const onConnection = (ws) => {
       message.save((err, res) => {
         if (err) {
           console.log("保存失败：" + err)
+          results = null
         } else {
           console.log("保存成功：" + res)
           results = res
