@@ -15,13 +15,13 @@ router.get('/', (req, res, next)=> {
     if(err){
      res.json({
       success: false,
-      msg:'查询失败',
+      msg:'消息查询失败',
       results: []
   });
     } else {
       res.json({
         success: true,
-        msg:'查询成功',
+        msg:'消息查询成功',
         onlineCount,
         results: ret
     });
