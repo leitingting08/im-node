@@ -7,6 +7,8 @@
 const app = require('../app')
 const debug = require('debug')('server:server')
 const http = require('http')
+const url = require('url')
+const qs = require('querystring')
 
 /**
  * Normalize a port into a number, string, or false.
@@ -81,7 +83,7 @@ const server = http.createServer(app)
  */
 const WebSocket = require('ws')
 const wss = new WebSocket.Server({
-  server,
+  noServer: true
 })
 
 /**
@@ -95,16 +97,25 @@ server.on('listening', onListening)
 /**
  * 监听socket接口
  */
-const dayjs = require('dayjs')
 const Message = require('../models/message')
 const redisClient = require('../models/redis')
 const cb = (err, data) => {
   console.log('err: ', err, ' data: ', data, ' data type: ', typeof data)
 }
 
-const onConnection = (ws) => {
+server.on('upgrade', function upgrade(request, socket, head) {
+  wss.handleUpgrade(request, socket, head, function done(ws) {
+    wss.emit('connection', ws, request)
+  })
+})
+
+const onConnection = (ws, request) => {
+  ws.isAlive = true
+  ws.on('pong', heartbeat);
+  const query = qs.parse(url.parse(request.url).query)
+  // const room = query.room
+  const user = query.user
   let results = null
-  const timeNow = dayjs().format('YYYY-MM-DD HH:mm:ss')
   let onlineCount = 0
   redisClient.llen('names', (err, length) => {
     console.log(err, length)
@@ -117,17 +128,17 @@ const onConnection = (ws) => {
       msg_content,
       msg_id
     } = JSON.parse(msg)
+
     if (msg_type !== 'PING') {
       // 心跳监测
       if (msg_type === 'ENTER') {
-        // 用户进入
-        ws.user_name = user_name
-        onlineCount++
+        // 用户进入  
         redisClient.rpush('names', user_name, cb) // 向redis中添加
+        onlineCount++
       }
       results = {
         msg_type,
-        send_time: timeNow,
+        send_time: (new Date()).valueOf(),
         user_name,
         msg_content,
         msg_id
@@ -142,8 +153,7 @@ const onConnection = (ws) => {
           results = res
         }
       })
-    }
-    if (msg_type === 'PING') {
+    } else {
       ws.send(
         JSON.stringify({
           // 心跳包返回ack
@@ -174,25 +184,72 @@ const onConnection = (ws) => {
   })
   ws.on('close', (err, info) => {
     // 当某一个人关闭连接离开时，通知前端，并将这个人从当前存储用户的数组中移除
-    console.log('somebody leave' + ws.user_name)
     if (!onlineCount) return
-    if (!ws.user_name) return
+    if (!user) return
+    if(ws.isAlive) return
+    redisClient.lrem('names', 0, user, cb)
     onlineCount--
-    redisClient.lrem('names', 0, ws.user_name, cb)
-    ws.send(
-      JSON.stringify({
-        code: 0,
-        message: '接收成功',
-        results: {
-          msg_type: 'LEAVE',
-          send_time: timeNow,
-          user_name: ws.user_name,
-          onlineCount,
-        },
+    results =  {
+      msg_type: 'LEAVE',
+      send_time: (new Date()).valueOf(),
+      user_name: user,
+      onlineCount,
+    }
+    var message = new Message(results) // 历史消息存数据库
+      message.save((err, res) => {
+        if (err) {
+          console.log("保存失败：" + err)
+          results = null
+        } else {
+          console.log("保存成功：" + res)
+          results = res
+        }
       })
-    )
+    wss.clients.forEach((client) => {
+      // 广播消息给所有客户端
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            code: 0,
+            message: '用户离开',
+            results
+          })
+        )
+      }
+    })
+
   })
 }
+// var IDSNew = new Array();
+// var isopen = true;
+// IDSNew[user]=new Date();
+// if(isopen){
+//   //只执行一次
+//   isopen=false;
+//   //设置打印日志
+//   var logn=0;
+//   setInterval(function(){
+//       logn++;
+//       log("开始执行任务第"+logn+"次");
+
+//     //循环数组（key键为客户端ID，值为上次发送的时间）
+//     for(var key in IDSNew)
+//     {
+//         //现在的时间
+//         var date=new Date()
+//         //现在的时间和此ID上次的时间差
+//         var datetime=date-IDSNew[key]
+//         //开始判断
+//         if(!datetime&&datetime>6000 && !key)
+//         {
+//             log("离线的设备ID为"+key)
+//             //删除已经离线的客户端
+//             delete IDSNew[key]
+//         }
+//     }
+// //如果客户端是五秒发一次，建议判断时间为六秒（因为可能会有网络延迟）
+// },6000)
+// }
 
 /**
  * 监听websocket
@@ -202,3 +259,4 @@ const onConnection = (ws) => {
  * {error} 监听WebSocket 通信过程中出错的事件
  **/
 wss.on('connection', onConnection)
+// server.on('upgrade', onUpgrade)
