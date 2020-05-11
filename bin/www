@@ -111,7 +111,7 @@ server.on('upgrade', function upgrade(request, socket, head) {
 
 const onConnection = (ws, request) => {
   ws.isAlive = true
-  ws.on('pong', heartbeat);
+  // ws.on('pong', heartbeat);
   const query = qs.parse(url.parse(request.url).query)
   // const room = query.room
   const user = query.user
