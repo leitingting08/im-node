@@ -110,7 +110,6 @@ server.on('upgrade', function upgrade(request, socket, head) {
 })
 
 const onConnection = (ws, request) => {
-  ws.isAlive = true
   // ws.on('pong', heartbeat);
   const query = qs.parse(url.parse(request.url).query)
   // const room = query.room
@@ -118,8 +117,15 @@ const onConnection = (ws, request) => {
   let results = null
   let onlineCount = 0
   redisClient.llen('names', (err, length) => {
-    console.log(err, length)
     onlineCount = length
+  })
+  // 用户进入  
+  redisClient.lrange('names', 0, -1, (error, array) => {
+    console.log(error, array)
+    if (array.indexOf(user === -1)) {
+      redisClient.rpush('names', user_name, cb) // 向redis队列中添加
+      onlineCount++
+    }
   })
   ws.on('message', (msg) => {
     const {
@@ -129,13 +135,9 @@ const onConnection = (ws, request) => {
       msg_id
     } = JSON.parse(msg)
 
+    // 要区分下是正常刷新重连还是 用户关闭浏览器（主动断连）或 网络不好断开连接
     if (msg_type !== 'PING') {
       // 心跳监测
-      if (msg_type === 'ENTER') {
-        // 用户进入  
-        redisClient.rpush('names', user_name, cb) // 向redis中添加
-        onlineCount++
-      }
       results = {
         msg_type,
         send_time: (new Date()).valueOf(),
@@ -156,11 +158,11 @@ const onConnection = (ws, request) => {
     } else {
       ws.send(
         JSON.stringify({
-          // 心跳包返回ack
+          // 心跳包返回PING
           code: 0,
           message: '接收成功',
           results: {
-            msg_type: 'ACK',
+            msg_type: 'PING',
           },
           onlineCount,
         })
@@ -182,42 +184,40 @@ const onConnection = (ws, request) => {
       }
     })
   })
-  ws.on('close', (err, info) => {
+  ws.on('close', (err, info) => { // 当页面刷新重连也会触发close 给客户端发一个消息
     // 当某一个人关闭连接离开时，通知前端，并将这个人从当前存储用户的数组中移除
     if (!onlineCount) return
     if (!user) return
-    if(ws.isAlive) return
     redisClient.lrem('names', 0, user, cb)
     onlineCount--
-    results =  {
-      msg_type: 'LEAVE',
-      send_time: (new Date()).valueOf(),
-      user_name: user,
-      onlineCount,
-    }
-    var message = new Message(results) // 历史消息存数据库
-      message.save((err, res) => {
-        if (err) {
-          console.log("保存失败：" + err)
-          results = null
-        } else {
-          console.log("保存成功：" + res)
-          results = res
-        }
-      })
-    wss.clients.forEach((client) => {
-      // 广播消息给所有客户端
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(
-          JSON.stringify({
-            code: 0,
-            message: '用户离开',
-            results
-          })
-        )
-      }
-    })
-
+    // results =  {
+    //   msg_type: 'LEAVE',
+    //   send_time: (new Date()).valueOf(),
+    //   user_name: user,
+    //   onlineCount,
+    // }
+    // var message = new Message(results) // 历史消息存数据库
+    //   message.save((err, res) => {
+    //     if (err) {
+    //       console.log("保存失败：" + err)
+    //       results = null
+    //     } else {
+    //       console.log("保存成功：" + res)
+    //       results = res
+    //     }
+    //   })
+    // wss.clients.forEach((client) => {
+    //   // 广播消息给所有客户端
+    //   if (client.readyState === WebSocket.OPEN) {
+    //     client.send(
+    //       JSON.stringify({
+    //         code: 0,
+    //         message: '用户离开',
+    //         results
+    //       })
+    //     )
+    //   }
+    // })
   })
 }
 // var IDSNew = new Array();
