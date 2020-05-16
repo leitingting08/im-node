@@ -79,11 +79,28 @@ app.set('port', port)
 const server = http.createServer(app)
 
 /**
- * Create ws server.
+ * new WebSocket.Server(options[, callback]) 
+ * options {Object}
+ *  * host {String} 要绑定的服务器主机名
+ *  * port {Number} 要绑定的服务器端口
+ *  * backlog {Number} 挂起连接队列的最大长度.
+ *  * server {http.Server|https.Server} 一个预创建的HTTP/S服务器  
+ *  * verifyClient {Function} 验证传入连接的函数。
+ *  * handleProtocols {Function} 处理子协议的函数。
+ *  * path {String} 只接受与此路径匹配的连接
+ *  * noServer {Boolean} 启用无服务器模式
+ *  * clientTracking {Boolean} 是否记录连接clients
+ *  * perMessageDeflate {Boolean|Object} 开启关闭zlib压缩(配置)
+ *  * maxPayload {Number} 最大消息载荷大小（bytes）
+ *  * callback {Function}
+ * 1. 创建一个新的服务器实例。必须提供端口、服务器或NoServer中的一个，否则会引发错误。
+ * 2. 如果端口被设置，则自动创建、启动和使用HTTP服务器。
+ * 3. 要使用外部HTTP/S服务器，只指定服务器或NoServer。此时，必须手动启动HTTP/S服务器。
+ * 4. NoSver模式允许WS服务器与HTTP/S服务器完全分离。这使得，可以在多个WS服务器之间共享一个HTTP/S服务器
  */
 const WebSocket = require('ws')
 const wss = new WebSocket.Server({
-  noServer: true
+  server
 })
 
 /**
@@ -100,41 +117,102 @@ server.on('listening', onListening)
 const Message = require('../models/message')
 const redisClient = require('../models/redis')
 const cb = (err, data) => {
-  console.log('err: ', err, ' data: ', data, ' data type: ', typeof data)
+  // console.log('err: ', err, ' data: ', data, ' data type: ', typeof data)  
 }
 
-server.on('upgrade', function upgrade(request, socket, head) {
-  wss.handleUpgrade(request, socket, head, function done(ws) {
-    wss.emit('connection', ws, request)
-  })
-})
+/**
+ * @see https://github.com/websockets/ws
+ * server.handleUpgrade(request, socket, head, callback) 处理websocket升级请求 noServer模式下必须手动调用该函数
+ **/
+// server.on('upgrade', function upgrade(request, socket, head) {
+//   wss.handleUpgrade(request, socket, head, function done(ws) {
+//     wss.emit('connection', ws, request)
+//   })
+// })
 
+let onlineCount = 0
+let results = null
+
+const boardCast = (results) => {
+  wss.clients.forEach((client) => { // 广播消息给所有客户端 断联了 主动发消息给客户端
+    if (client.readyState === WebSocket.OPEN) {
+      if (results && results.msg_type !== 'PING') {
+        client.send(
+          JSON.stringify({
+            code: 0,
+            message: '成功',
+            results,
+            onlineCount,
+          })
+        )
+      }
+    }
+  })
+  var message = new Message(results) // 历史消息存数据库
+  message.save((err, res) => {
+    if (err) {
+      console.log("保存失败：" + err)
+      results = null
+    } else {
+      console.log("保存成功：" + res)
+      results = res
+    }
+  })
+}
+
+// 要判断下客户端是否断联-how? ---- 接收不到心跳包 判断用户是否离开
 const onConnection = (ws, request) => {
-  // ws.on('pong', heartbeat);
   const query = qs.parse(url.parse(request.url).query)
   // const room = query.room
   const user = query.user
-  let results = null
-  let onlineCount = 0
-  redisClient.llen('names', (err, length) => {
-    onlineCount = length
-  })
-  // 用户进入  
-  redisClient.lrange('names', 0, -1, (error, array) => {
-    console.log(error, array)
-    if (array.indexOf(user === -1)) {
-      redisClient.rpush('names', user_name, cb) // 向redis队列中添加
-      onlineCount++
+  const userEnter = (type) => {
+    if (type === 'enter') {
+      redisClient.sadd('users', user)
+      redisClient.scard('users', (err, data) => {
+        if (!err) {
+          onlineCount = data
+        }
+      })
     }
-  })
+    if (type === 'leave') {
+      redisClient.srem('users', user)
+      redisClient.scard('users', (err, data) => {
+        if (!err) {
+          onlineCount = data
+        }
+      })
+    }
+  }
+ 
+  userEnter('enter')
+
+  redisClient.hset('myhash', user, new Date().valueOf(), cb)
   ws.on('message', (msg) => {
+    redisClient.hset('myhash', user, new Date().valueOf(), cb)
+    redisClient.hkeys('myhash', (err, replies) => {
+      console.log(replies)
+      replies.forEach(item => {
+        redisClient.hget('myhash', item, (err, data) => {
+          const time = new Date().valueOf() - Number(data)
+          if (time > 5000) {
+            results = {
+              msg_type: 'LEAVE',
+              send_time: (new Date()).valueOf(),
+              user_name: item
+            }
+            boardCast(results)
+            redisClient.hdel('myhash', item, cb)
+          }
+        })
+      })
+    })
+    userEnter('enter')
     const {
       msg_type,
       user_name,
       msg_content,
       msg_id
     } = JSON.parse(msg)
-
     // 要区分下是正常刷新重连还是 用户关闭浏览器（主动断连）或 网络不好断开连接
     if (msg_type !== 'PING') {
       // 心跳监测
@@ -145,16 +223,7 @@ const onConnection = (ws, request) => {
         msg_content,
         msg_id
       }
-      var message = new Message(results) // 历史消息存数据库
-      message.save((err, res) => {
-        if (err) {
-          console.log("保存失败：" + err)
-          results = null
-        } else {
-          console.log("保存成功：" + res)
-          results = res
-        }
-      })
+      boardCast(results)
     } else {
       ws.send(
         JSON.stringify({
@@ -168,88 +237,14 @@ const onConnection = (ws, request) => {
         })
       )
     }
-    wss.clients.forEach((client) => {
-      // 广播消息给所有客户端
-      if (client.readyState === WebSocket.OPEN) {
-        if (results && msg_type !== 'PING') {
-          client.send(
-            JSON.stringify({
-              code: 0,
-              message: '接收成功',
-              results,
-              onlineCount,
-            })
-          )
-        }
-      }
-    })
   })
   ws.on('close', (err, info) => { // 当页面刷新重连也会触发close 给客户端发一个消息
-    // 当某一个人关闭连接离开时，通知前端，并将这个人从当前存储用户的数组中移除
+    // 当socket连接断开，将这个人从当前存储用户的数组中移除
     if (!onlineCount) return
     if (!user) return
-    redisClient.lrem('names', 0, user, cb)
-    onlineCount--
-    // results =  {
-    //   msg_type: 'LEAVE',
-    //   send_time: (new Date()).valueOf(),
-    //   user_name: user,
-    //   onlineCount,
-    // }
-    // var message = new Message(results) // 历史消息存数据库
-    //   message.save((err, res) => {
-    //     if (err) {
-    //       console.log("保存失败：" + err)
-    //       results = null
-    //     } else {
-    //       console.log("保存成功：" + res)
-    //       results = res
-    //     }
-    //   })
-    // wss.clients.forEach((client) => {
-    //   // 广播消息给所有客户端
-    //   if (client.readyState === WebSocket.OPEN) {
-    //     client.send(
-    //       JSON.stringify({
-    //         code: 0,
-    //         message: '用户离开',
-    //         results
-    //       })
-    //     )
-    //   }
-    // })
+    userEnter('leave')
   })
 }
-// var IDSNew = new Array();
-// var isopen = true;
-// IDSNew[user]=new Date();
-// if(isopen){
-//   //只执行一次
-//   isopen=false;
-//   //设置打印日志
-//   var logn=0;
-//   setInterval(function(){
-//       logn++;
-//       log("开始执行任务第"+logn+"次");
-
-//     //循环数组（key键为客户端ID，值为上次发送的时间）
-//     for(var key in IDSNew)
-//     {
-//         //现在的时间
-//         var date=new Date()
-//         //现在的时间和此ID上次的时间差
-//         var datetime=date-IDSNew[key]
-//         //开始判断
-//         if(!datetime&&datetime>6000 && !key)
-//         {
-//             log("离线的设备ID为"+key)
-//             //删除已经离线的客户端
-//             delete IDSNew[key]
-//         }
-//     }
-// //如果客户端是五秒发一次，建议判断时间为六秒（因为可能会有网络延迟）
-// },6000)
-// }
 
 /**
  * 监听websocket
@@ -259,4 +254,3 @@ const onConnection = (ws, request) => {
  * {error} 监听WebSocket 通信过程中出错的事件
  **/
 wss.on('connection', onConnection)
-// server.on('upgrade', onUpgrade)
