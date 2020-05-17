@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
-const ipConfig = require('../utils/getIp')
-const DB_URL = `mongodb://${ipConfig.ip}:27017/chat`;
+const DB_URL = `mongodb://127.0.0.1:27017/chat`;
 
 /* 链接 */
 mongoose.connect(DB_URL, {
