@@ -231,14 +231,14 @@ const onConnection = (ws, request) => {
         msg_id
       }
       boardCast(results)
-    } else {
+    } else { // 收到PING就返回PONG
       ws.send(
         JSON.stringify({
-          // 心跳包返回PING
+          // 心跳包返回PONG
           code: 0,
           message: '接收成功',
           results: {
-            msg_type: 'PING',
+            msg_type: 'PONG',
           },
           onlineCount,
         })
