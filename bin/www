@@ -80,19 +80,19 @@ const server = http.createServer(app)
 
 /**
  * new WebSocket.Server(options[, callback]) 
- * options {Object}
- *  * host {String} 要绑定的服务器主机名
- *  * port {Number} 要绑定的服务器端口
- *  * backlog {Number} 挂起连接队列的最大长度.
- *  * server {http.Server|https.Server} 一个预创建的HTTP/S服务器  
- *  * verifyClient {Function} 验证传入连接的函数。
- *  * handleProtocols {Function} 处理子协议的函数。
- *  * path {String} 只接受与此路径匹配的连接
- *  * noServer {Boolean} 启用无服务器模式
- *  * clientTracking {Boolean} 是否记录连接clients
- *  * perMessageDeflate {Boolean|Object} 开启关闭zlib压缩(配置)
- *  * maxPayload {Number} 最大消息载荷大小（bytes）
- *  * callback {Function}
+ * @param {Object} options
+ * @param {String} options.host 要绑定的服务器主机名
+ *  @param {Number} options.port 要绑定的服务器端口
+ *  @param  {Number} options.backlog 挂起连接队列的最大长度.
+ *  @param {http.Server|https.Server} options.server一个预创建的HTTP/S服务器  
+ *  @param {Function} options.verifyClient 验证传入连接的函数。
+ *  @param {Function} options.handleProtocols 处理子协议的函数。
+ *  @param {String} options.path 只接受与此路径匹配的连接
+ *  @param {Boolean} options.noServer 启用无服务器模式
+ *  @param {Boolean} options.clientTracking 是否记录连接clients
+ *  @param {Boolean|Object} options.perMessageDeflate 开启关闭zlib压缩(配置)
+ *  @param {Number} options.maxPayload 最大消息载荷大小（bytes）
+ *  @param callback {Function}
  * 1. 创建一个新的服务器实例。必须提供端口、服务器或NoServer中的一个，否则会引发错误。
  * 2. 如果端口被设置，则自动创建、启动和使用HTTP服务器。
  * 3. 要使用外部HTTP/S服务器，只指定服务器或NoServer。此时，必须手动启动HTTP/S服务器。
@@ -183,7 +183,7 @@ const onConnection = (ws, request) => {
       })
     }
   }
- 
+
   userEnter('enter')
 
   redisClient.hset('myhash', user, new Date().valueOf(), cb)
@@ -193,15 +193,22 @@ const onConnection = (ws, request) => {
       console.log(replies)
       replies.forEach(item => {
         redisClient.hget('myhash', item, (err, data) => {
-          const time = new Date().valueOf() - Number(data)
-          if (time > 5000) {
-            results = {
-              msg_type: 'LEAVE',
-              send_time: (new Date()).valueOf(),
-              user_name: item
+          if (data) {
+            const time = new Date().valueOf() - Number(data)
+            if (time > 5000 && replies.indexOf(item) !== -1) {
+              results = {
+                msg_type: 'LEAVE',
+                send_time: (new Date()).valueOf(),
+                user_name: item
+              }
+              redisClient.hdel('myhash', item, cb)
+              redisClient.hkeys('myhash', (err, res) => {
+                if(res.indexOf(item)===-1){
+                  boardCast(results)
+                }
+              })
+              
             }
-            boardCast(results)
-            redisClient.hdel('myhash', item, cb)
           }
         })
       })
