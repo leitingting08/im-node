@@ -12,8 +12,6 @@ npm start // 用pm2启动
 npm stop // 停掉pm2启动的服务
 ```
 
-### 开启MongoDB 
-
 #### 启动MongoDB
 ```
 mongod
