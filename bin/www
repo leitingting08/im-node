@@ -195,7 +195,7 @@ const onConnection = (ws, request) => {
         redisClient.hget('myhash', item, (err, data) => {
           if (data) {
             const time = new Date().valueOf() - Number(data)
-            if (time > 5000 && replies.indexOf(item) !== -1) {
+            if (time > 10000 && replies.indexOf(item) !== -1) {
               results = {
                 msg_type: 'LEAVE',
                 send_time: (new Date()).valueOf(),
