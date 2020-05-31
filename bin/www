@@ -137,6 +137,11 @@ const boardCast = (results) => {
   wss.clients.forEach((client) => { // 广播消息给所有客户端 断联了 主动发消息给客户端
     if (client.readyState === WebSocket.OPEN) {
       if (results && results.msg_type !== 'PING') {
+        Message.find((err,ret)=>{
+          if(ret&&ret.length) {
+            if(ret.some(item=>item.msg_id===results.msg_id)) return
+          }
+        })
         client.send(
           JSON.stringify({
             code: 0,
@@ -148,6 +153,7 @@ const boardCast = (results) => {
       }
     }
   })
+
   var message = new Message(results) // 历史消息存数据库
   message.save((err, res) => {
     if (err) {
@@ -165,6 +171,37 @@ const onConnection = (ws, request) => {
   const query = qs.parse(url.parse(request.url).query)
   // const room = query.room
   const user = query.user
+  const userActive = () => {
+    redisClient.hkeys('myhash', (err, replies) => { // 在线
+      console.log(replies)
+      // onlineCount = replies.length
+      if(!replies||!replies.length){
+        return
+      }
+      // 如何处理最后一个人离开这个问题 还剩下0人
+      replies.forEach(item => {
+        redisClient.hget('myhash', item, (err, data) => {
+          if (data) {
+            const time = new Date().valueOf() - Number(data)
+            if (time > 6000 && replies.indexOf(item) !== -1) {
+              results = {
+                msg_type: 'LEAVE',
+                send_time: (new Date()).valueOf(),
+                msg_id: (new Date()).valueOf(),
+                user_name: item
+              }
+              redisClient.hdel('myhash', item, cb)
+              redisClient.hkeys('myhash', (err, res) => {
+                if(res.length>0 && res.indexOf(item)===-1){
+                  boardCast(results)
+                }
+              })       
+            }
+          }
+        })
+      })
+    })
+  }
   const userEnter = (type) => {
     if (type === 'enter') {
       redisClient.sadd('users', user)
@@ -183,36 +220,12 @@ const onConnection = (ws, request) => {
       })
     }
   }
-
   userEnter('enter')
-
+  userActive()
   redisClient.hset('myhash', user, new Date().valueOf(), cb)
   ws.on('message', (msg) => {
-    redisClient.hset('myhash', user, new Date().valueOf(), cb)
-    redisClient.hkeys('myhash', (err, replies) => {
-      console.log(replies)
-      replies.forEach(item => {
-        redisClient.hget('myhash', item, (err, data) => {
-          if (data) {
-            const time = new Date().valueOf() - Number(data)
-            if (time > 10000 && replies.indexOf(item) !== -1) {
-              results = {
-                msg_type: 'LEAVE',
-                send_time: (new Date()).valueOf(),
-                user_name: item
-              }
-              redisClient.hdel('myhash', item, cb)
-              redisClient.hkeys('myhash', (err, res) => {
-                if(res.indexOf(item)===-1){
-                  boardCast(results)
-                }
-              })
-              
-            }
-          }
-        })
-      })
-    })
+    redisClient.hset('myhash', user, new Date().valueOf(), cb) // 在线人存集合
+    userActive()
     userEnter('enter')
     const {
       msg_type,
@@ -250,6 +263,7 @@ const onConnection = (ws, request) => {
     if (!onlineCount) return
     if (!user) return
     userEnter('leave')
+    userActive()
   })
 }
 
