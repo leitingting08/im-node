@@ -3,6 +3,7 @@ const mongoose = require('./db');
 var MessageSchema = new mongoose.Schema({
     user_name:{type:String, require: true},
     send_time: {type:String, require: true},
+    msg_id: {type: String, require: true},
     msg_type: {type: String, require: true},
     online_count: {type: Number},
     msg_content:{type: String}
