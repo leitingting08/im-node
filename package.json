@@ -19,7 +19,7 @@
     "morgan": "^1.10.0",
     "pm2": "^4.4.0",
     "redis": "^3.0.2",
-    "ws": "^7.2.3"
+    "ws": "^7.4.6"
   },
   "devDependencies": {
     "babel-eslint": "^10.1.0",
